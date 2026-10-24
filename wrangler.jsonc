@@ -1,0 +1,36 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "distributed-job-queue-system",
+	"main": "cf/index.ts",
+	"compatibility_date": "2025-09-01",
+	"observability": { "enabled": true },
+
+	"containers": [
+		{
+			"class_name": "ApiContainer",
+			"image": "./Dockerfile",
+			"max_instances": 2,
+			"instance_type": "standard"
+		},
+		{
+			"class_name": "WorkerContainer",
+			"image": "./Dockerfile",
+			"max_instances": 1,
+			"instance_type": "standard"
+		}
+	],
+
+	"durable_objects": {
+		"bindings": [
+			{ "name": "API_CONTAINER", "class_name": "ApiContainer" },
+			{ "name": "WORKER_CONTAINER", "class_name": "WorkerContainer" }
+		]
+	},
+
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["ApiContainer", "WorkerContainer"] }
+	],
+
+	// Keepalive ping so the worker container does not sleep between jobs.
+	"triggers": { "crons": ["*/2 * * * *"] }
+}

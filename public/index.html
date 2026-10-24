@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Distributed Job Queue Dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <div>
+          <h1>Distributed Job Queue</h1>
+          <p>Express.js + BullMQ + Redis + PostgreSQL Architecture</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div class="status-indicator">
+          <span id="system-status-dot" class="status-dot"></span>
+          <span id="system-status-text">Connecting...</span>
+        </div>
+
+        <div class="toggle-container">
+          <label class="switch">
+            <input type="checkbox" id="auto-refresh-toggle" checked>
+            <span class="slider"></span>
+          </label>
+          <span>Live Polling (2.5s)</span>
+        </div>
+
+        <button id="refresh-btn" class="btn btn-secondary btn-sm" title="Refresh Now">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+          Refresh
+        </button>
+      </div>
+    </header>
+
+    <!-- Architecture & Lifecycle Explainer -->
+    <div class="lifecycle-visualizer">
+      <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">
+        Distributed Architecture Flow
+      </div>
+      <div class="lifecycle-steps">
+        <div class="lifecycle-step">
+          <span>Client HTTP</span>
+        </div>
+        <div class="lifecycle-arrow">→</div>
+        <div class="lifecycle-step" style="border-color: #4f46e5;">
+          <span>Express API</span>
+        </div>
+        <div class="lifecycle-arrow">→</div>
+        <div class="lifecycle-step" style="border-color: #3b82f6;">
+          <span>PostgreSQL (Durable Store & Idempotency)</span>
+        </div>
+        <div class="lifecycle-arrow">→</div>
+        <div class="lifecycle-step" style="border-color: #ec4899;">
+          <span>Redis / BullMQ (Dispatch)</span>
+        </div>
+        <div class="lifecycle-arrow">→</div>
+        <div class="lifecycle-step" style="border-color: #10b981;">
+          <span>Worker Service (Process & Retry / DLQ)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stat Cards -->
+    <div class="stats-grid">
+      <div class="stat-card total">
+        <div class="stat-label">Total Jobs</div>
+        <div class="stat-value" id="stat-total">0</div>
+      </div>
+      <div class="stat-card queued">
+        <div class="stat-label">Queued</div>
+        <div class="stat-value" id="stat-queued" style="color: var(--badge-queued);">0</div>
+      </div>
+      <div class="stat-card processing">
+        <div class="stat-label">Processing</div>
+        <div class="stat-value" id="stat-processing" style="color: var(--badge-processing);">0</div>
+      </div>
+      <div class="stat-card completed">
+        <div class="stat-label">Completed</div>
+        <div class="stat-value" id="stat-completed" style="color: var(--badge-completed);">0</div>
+      </div>
+      <div class="stat-card failed">
+        <div class="stat-label">Retrying (Failed)</div>
+        <div class="stat-value" id="stat-failed" style="color: var(--badge-failed);">0</div>
+      </div>
+      <div class="stat-card dead-letter">
+        <div class="stat-label">Dead Letter (DLQ)</div>
+        <div class="stat-value" id="stat-dead-letter" style="color: var(--badge-dead-letter);">0</div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-layout">
+      <!-- Left: Create Job Card -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            Enqueue New Job
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label class="form-label">Simulation Presets</label>
+            <div class="presets-container">
+              <button type="button" class="preset-chip active" data-preset="email">📧 Email (1s)</button>
+              <button type="button" class="preset-chip" data-preset="data">📊 Data Pipeline (2s)</button>
+              <button type="button" class="preset-chip" data-preset="webhook">🔗 Webhook (1.5s)</button>
+              <button type="button" class="preset-chip" data-preset="delayed">⏱️ Delayed (8s)</button>
+              <button type="button" class="preset-chip" data-preset="fail">💥 DLQ Test (Fail)</button>
+            </div>
+          </div>
+
+          <form id="job-form">
+            <div class="form-group">
+              <label class="form-label" for="job-type">Job Type</label>
+              <input type="text" id="job-type" class="form-input" required placeholder="e.g. email, data-processing">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group">
+                <label class="form-label" for="job-priority">Priority</label>
+                <select id="job-priority" class="form-select">
+                  <option value="1">Low (1)</option>
+                  <option value="5" selected>Normal (5)</option>
+                  <option value="10">High (10)</option>
+                  <option value="20">Critical (20)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="job-delay">Delay (ms)</label>
+                <input type="number" id="job-delay" class="form-input" value="0" min="0" step="500">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="job-max-attempts">Max Retry Attempts</label>
+              <input type="number" id="job-max-attempts" class="form-input" value="5" min="1" max="20">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="job-idempotency">Idempotency Key (Optional)</label>
+              <div class="input-with-button">
+                <input type="text" id="job-idempotency" class="form-input" placeholder="e.g. order-unique-991">
+                <button type="button" id="gen-idempotency-btn" class="btn btn-secondary btn-sm" title="Generate random key">New</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="job-payload">Payload (JSON)</label>
+              <textarea id="job-payload" class="form-textarea" rows="4" placeholder="{ ... }"></textarea>
+            </div>
+
+            <button type="submit" id="submit-job-btn" class="btn btn-primary" style="width: 100%; margin-bottom: 0.75rem;">
+              Enqueue Job
+            </button>
+
+            <button type="button" id="test-idempotency-btn" class="btn btn-secondary" style="width: 100%; font-size: 0.8rem;" title="Tests that duplicate requests return the same job without re-queueing">
+              ⚡ Test Idempotency (2x Submit)
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Right: Jobs Table Card -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            Recent Jobs Stream
+          </div>
+          <span id="jobs-count" style="font-size: 0.8rem; color: var(--text-secondary);">Loading...</span>
+        </div>
+
+        <div class="card-body" style="padding-bottom: 0.5rem;">
+          <!-- Filter Buttons -->
+          <div class="filter-bar">
+            <div class="filters-group">
+              <button class="filter-btn active" data-status="ALL">All</button>
+              <button class="filter-btn" data-status="QUEUED">Queued</button>
+              <button class="filter-btn" data-status="PROCESSING">Processing</button>
+              <button class="filter-btn" data-status="COMPLETED">Completed</button>
+              <button class="filter-btn" data-status="FAILED">Retrying</button>
+              <button class="filter-btn" data-status="DEAD_LETTER">Dead Letter</button>
+            </div>
+          </div>
+
+          <!-- Table -->
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Job ID</th>
+                  <th>Type</th>
+                  <th>Priority</th>
+                  <th>Attempts</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody id="jobs-table-body">
+                <tr>
+                  <td colspan="6" class="empty-state">Loading jobs...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Job Details Modal -->
+  <div id="modal-backdrop" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <div style="font-weight: 600; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+          <span>Job Details</span>
+          <span id="modal-job-status"></span>
+        </div>
+        <button id="modal-close-btn" class="btn btn-secondary btn-sm" style="padding: 0.2rem 0.5rem;">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="modal-job-error-box" class="error-banner" style="display: none;">
+          <strong>Failure Reason:</strong>
+          <div id="modal-job-error-text" style="margin-top: 0.25rem;"></div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="meta-item">
+            <div class="meta-title">Job ID</div>
+            <div class="meta-val" id="modal-job-id" style="font-family: var(--font-mono); font-size: 0.775rem;">-</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-title">Job Type</div>
+            <div class="meta-val" id="modal-job-type">-</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-title">Priority</div>
+            <div class="meta-val" id="modal-job-priority">-</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-title">Attempts / Max</div>
+            <div class="meta-val" id="modal-job-attempts">-</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-title">Created At</div>
+            <div class="meta-val" id="modal-job-created" style="font-size: 0.8rem;">-</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-title">Completed At</div>
+            <div class="meta-val" id="modal-job-completed" style="font-size: 0.8rem;">-</div>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 0.5rem; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">
+          Payload Content:
+        </div>
+        <pre id="modal-job-payload" class="json-box"></pre>
+      </div>
+
+      <div class="modal-footer">
+        <button onclick="closeModal()" class="btn btn-secondary btn-sm">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
